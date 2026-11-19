@@ -1,0 +1,960 @@
+spring-ai-finance-assistant/
+├── pom.xml
+├── README.md
+└── src/
+    └── main/
+        ├── java/
+        │   └── com/example/finance/
+        │       ├── FinanceApplication.java
+        │       ├── controller/
+        │       │   └── FinanceController.java
+        │       ├── model/
+        │       │   └── Transaction.java
+        │       ├── repository/
+        │       │   └── TransactionRepository.java
+        │       ├── service/
+        │       │   ├── FinanceService.java
+        │       │   ├── AiService.java
+        │       │   └── AudioService.java
+        │       └── tools/
+        │           └── FinanceTools.java
+        └── resources/
+            └── application.properties
+==================================================
+ARQUIVO: pom.xml
+==================================================
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>spring-ai-finance-assistant</artifactId>
+    <version>1.0.0</version>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.5</version>
+        <relativePath/>
+    </parent>
+
+    <properties>
+        <java.version>21</java.version>
+        <spring-ai.version>1.0.0</spring-ai.version>
+    </properties>
+
+    <dependencies>
+
+        <!-- Spring Boot -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Spring AI -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
+        </dependency>
+
+        <!-- Banco de dados -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Validação -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- WebClient para áudio -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-webflux</artifactId>
+        </dependency>
+
+        <!-- Testes -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+    </dependencies>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
+
+
+==================================================
+ARQUIVO: src/main/resources/application.properties
+==================================================
+
+spring.application.name=spring-ai-finance-assistant
+
+# OpenAI
+spring.ai.openai.api-key=${OPENAI_API_KEY}
+spring.ai.openai.chat.options.model=gpt-4o-mini
+spring.ai.openai.chat.options.temperature=0.2
+
+# Banco de dados H2
+spring.datasource.url=jdbc:h2:mem:finance_db
+spring.datasource.driverClassName=org.h2.Driver
+spring.datasource.username=sa
+spring.datasource.password=
+
+spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+
+# Console H2
+spring.h2.console.enabled=true
+spring.h2.console.path=/h2-console
+
+# Upload de arquivos
+spring.servlet.multipart.max-file-size=20MB
+spring.servlet.multipart.max-request-size=20MB
+
+# Porta
+server.port=8080
+
+
+==================================================
+ARQUIVO: src/main/java/com/example/finance/FinanceApplication.java
+==================================================
+
+package com.example.finance;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class FinanceApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(FinanceApplication.class, args);
+    }
+
+}
+
+
+==================================================
+ARQUIVO: src/main/java/com/example/finance/model/Transaction.java
+==================================================
+
+package com.example.finance.model;
+
+import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "transactions")
+public class Transaction {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @NotBlank
+    private String description;
+
+    @NotNull
+    @Positive
+    private BigDecimal amount;
+
+    @NotBlank
+    private String type;
+
+    private String category;
+
+    private LocalDate date;
+
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    public void prePersist() {
+        if (date == null) {
+            date = LocalDate.now();
+        }
+
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+
+        if (type != null) {
+            type = type.toUpperCase();
+        }
+    }
+
+    public Transaction() {
+    }
+
+    public Transaction(
+            String description,
+            BigDecimal amount,
+            String type,
+            String category,
+            LocalDate date
+    ) {
+        this.description = description;
+        this.amount = amount;
+        this.type = type;
+        this.category = category;
+        this.date = date;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public BigDecimal getAmount() {
+        return amount;
+    }
+
+    public void setAmount(BigDecimal amount) {
+        this.amount = amount;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public void setCategory(String category) {
+        this.category = category;
+    }
+
+    public LocalDate getDate() {
+        return date;
+    }
+
+    public void setDate(LocalDate date) {
+        this.date = date;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+}
+
+
+==================================================
+ARQUIVO: src/main/java/com/example/finance/repository/TransactionRepository.java
+==================================================
+
+package com.example.finance.repository;
+
+import com.example.finance.model.Transaction;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface TransactionRepository
+        extends JpaRepository<Transaction, Long> {
+
+    List<Transaction> findByTypeIgnoreCase(String type);
+
+    List<Transaction> findByCategoryIgnoreCase(String category);
+
+    List<Transaction> findByDescriptionContainingIgnoreCase(
+            String description
+    );
+
+}
+
+
+==================================================
+ARQUIVO: src/main/java/com/example/finance/service/FinanceService.java
+==================================================
+
+package com.example.finance.service;
+
+import com.example.finance.model.Transaction;
+import com.example.finance.repository.TransactionRepository;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+@Service
+public class FinanceService {
+
+    private final TransactionRepository repository;
+
+    public FinanceService(TransactionRepository repository) {
+        this.repository = repository;
+    }
+
+    public Transaction create(Transaction transaction) {
+
+        validateTransaction(transaction);
+
+        transaction.setType(transaction.getType().toUpperCase());
+
+        return repository.save(transaction);
+    }
+
+    public List<Transaction> findAll() {
+        return repository.findAll();
+    }
+
+    public Transaction findById(Long id) {
+        return repository.findById(id)
+                .orElseThrow(() ->
+                        new RuntimeException(
+                                "Transação não encontrada: " + id
+                        )
+                );
+    }
+
+    public Transaction update(Long id, Transaction transaction) {
+
+        Transaction existing = findById(id);
+
+        validateTransaction(transaction);
+
+        existing.setDescription(transaction.getDescription());
+        existing.setAmount(transaction.getAmount());
+        existing.setType(transaction.getType().toUpperCase());
+        existing.setCategory(transaction.getCategory());
+        existing.setDate(transaction.getDate());
+
+        return repository.save(existing);
+    }
+
+    public void delete(Long id) {
+        Transaction transaction = findById(id);
+        repository.delete(transaction);
+    }
+
+    public List<Transaction> findByType(String type) {
+        return repository.findByTypeIgnoreCase(type);
+    }
+
+    public List<Transaction> findByCategory(String category) {
+        return repository.findByCategoryIgnoreCase(category);
+    }
+
+    public List<Transaction> findByDescription(String description) {
+        return repository.findByDescriptionContainingIgnoreCase(
+                description
+        );
+    }
+
+    public BigDecimal getTotalIncome() {
+
+        return repository.findByTypeIgnoreCase("INCOME")
+                .stream()
+                .map(Transaction::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    public BigDecimal getTotalExpenses() {
+
+        return repository.findByTypeIgnoreCase("EXPENSE")
+                .stream()
+                .map(Transaction::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    public BigDecimal getBalance() {
+        return getTotalIncome().subtract(getTotalExpenses());
+    }
+
+    public String getFinancialSummary() {
+
+        BigDecimal income = getTotalIncome();
+        BigDecimal expenses = getTotalExpenses();
+        BigDecimal balance = getBalance();
+
+        return """
+                RESUMO FINANCEIRO
+
+                Total de receitas: R$ %s
+                Total de despesas: R$ %s
+                Saldo atual: R$ %s
+                """.formatted(
+                income,
+                expenses,
+                balance
+        );
+    }
+
+    private void validateTransaction(Transaction transaction) {
+
+        if (transaction.getDescription() == null
+                || transaction.getDescription().isBlank()) {
+            throw new IllegalArgumentException(
+                    "A descrição é obrigatória."
+            );
+        }
+
+        if (transaction.getAmount() == null
+                || transaction.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException(
+                    "O valor deve ser maior que zero."
+            );
+        }
+
+        if (transaction.getType() == null
+                || transaction.getType().isBlank()) {
+            throw new IllegalArgumentException(
+                    "O tipo da transação é obrigatório."
+            );
+        }
+
+        String type = transaction.getType().toUpperCase();
+
+        if (!type.equals("INCOME") && !type.equals("EXPENSE")) {
+            throw new IllegalArgumentException(
+                    "O tipo deve ser INCOME ou EXPENSE."
+            );
+        }
+    }
+}
+
+
+==================================================
+ARQUIVO: src/main/java/com/example/finance/tools/FinanceTools.java
+==================================================
+
+package com.example.finance.tools;
+
+import com.example.finance.model.Transaction;
+import com.example.finance.service.FinanceService;
+import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
+@Component
+public class FinanceTools {
+
+    private final FinanceService financeService;
+
+    public FinanceTools(FinanceService financeService) {
+        this.financeService = financeService;
+    }
+
+    @Tool(description = """
+            Registra uma nova transação financeira.
+            Use INCOME para receita e EXPENSE para despesa.
+            """)
+    public String createTransaction(
+            @ToolParam(description = "Descrição da transação")
+            String description,
+
+            @ToolParam(description = "Valor monetário positivo")
+            BigDecimal amount,
+
+            @ToolParam(description = "INCOME ou EXPENSE")
+            String type,
+
+            @ToolParam(description = "Categoria da transação")
+            String category
+    ) {
+
+        Transaction transaction = new Transaction(
+                description,
+                amount,
+                type,
+                category,
+                LocalDate.now()
+        );
+
+        Transaction saved = financeService.create(transaction);
+
+        return "Transação registrada com sucesso! "
+                + "ID: " + saved.getId()
+                + ", descrição: " + saved.getDescription()
+                + ", valor: R$ " + saved.getAmount()
+                + ", tipo: " + saved.getType()
+                + ", categoria: " + saved.getCategory();
+    }
+
+    @Tool(description = "Consulta o saldo financeiro atual.")
+    public String getBalance() {
+        return "Seu saldo atual é R$ "
+                + financeService.getBalance();
+    }
+
+    @Tool(description = "Consulta o total de receitas.")
+    public String getIncome() {
+        return "Total de receitas: R$ "
+                + financeService.getTotalIncome();
+    }
+
+    @Tool(description = "Consulta o total de despesas.")
+    public String getExpenses() {
+        return "Total de despesas: R$ "
+                + financeService.getTotalExpenses();
+    }
+
+    @Tool(description = "Apresenta um resumo financeiro completo.")
+    public String getFinancialSummary() {
+        return financeService.getFinancialSummary();
+    }
+
+    @Tool(description = """
+            Consulta transações por categoria.
+            """)
+    public String findByCategory(
+            @ToolParam(description = "Categoria desejada")
+            String category
+    ) {
+
+        var transactions =
+                financeService.findByCategory(category);
+
+        if (transactions.isEmpty()) {
+            return "Nenhuma transação encontrada na categoria "
+                    + category;
+        }
+
+        return transactions.toString();
+    }
+
+    @Tool(description = """
+            Pesquisa transações por parte da descrição.
+            """)
+    public String searchTransactions(
+            @ToolParam(description = "Termo para pesquisa")
+            String description
+    ) {
+
+        var transactions =
+                financeService.findByDescription(description);
+
+        if (transactions.isEmpty()) {
+            return "Nenhuma transação encontrada com o termo: "
+                    + description;
+        }
+
+        return transactions.toString();
+    }
+}
+
+
+==================================================
+ARQUIVO: src/main/java/com/example/finance/service/AiService.java
+==================================================
+
+package com.example.finance.service;
+
+import com.example.finance.tools.FinanceTools;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.stereotype.Service;
+
+@Service
+public class AiService {
+
+    private final ChatClient chatClient;
+    private final FinanceTools financeTools;
+
+    public AiService(
+            ChatClient.Builder chatClientBuilder,
+            FinanceTools financeTools
+    ) {
+        this.chatClient = chatClientBuilder.build();
+        this.financeTools = financeTools;
+    }
+
+    public String chat(String message) {
+
+        return chatClient.prompt()
+
+                .system("""
+                        Você é um assistente financeiro inteligente,
+                        amigável e objetivo.
+
+                        Você ajuda o usuário a controlar suas finanças,
+                        registrar receitas e despesas, consultar saldo,
+                        pesquisar transações e apresentar resumos.
+
+                        REGRAS:
+
+                        1. Responda sempre em português brasileiro.
+                        2. Use valores monetários em reais (R$).
+                        3. Quando o usuário solicitar registro de uma
+                           receita ou despesa, utilize a ferramenta
+                           createTransaction.
+                        4. Nunca invente transações.
+                        5. Nunca afirme que registrou algo sem que
+                           a ferramenta tenha sido executada.
+                        6. Para consultas de saldo, receitas, despesas
+                           ou resumo financeiro, use as ferramentas.
+                        7. Identifique corretamente receitas como INCOME
+                           e despesas como EXPENSE.
+                        8. Se faltar informação para registrar uma
+                           transação, pergunte ao usuário.
+                        9. Seja educado e explique os resultados
+                           de maneira simples.
+                        10. Não invente valores ou informações financeiras.
+                        """)
+
+                .user(message)
+
+                .tools(financeTools)
+
+                .call()
+
+                .content();
+    }
+}
+
+
+==================================================
+ARQUIVO: src/main/java/com/example/finance/service/AudioService.java
+==================================================
+
+package com.example.finance.service;
+
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.web.reactive.function.client.WebClient;
+
+@Service
+public class AudioService {
+
+    private final WebClient webClient;
+
+    public AudioService() {
+
+        this.webClient = WebClient.builder()
+                .baseUrl("https://api.openai.com/v1")
+                .build();
+    }
+
+    private String getApiKey() {
+
+        String apiKey = System.getenv("OPENAI_API_KEY");
+
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException(
+                    "Configure a variável OPENAI_API_KEY."
+            );
+        }
+
+        return apiKey;
+    }
+
+    public String transcribe(byte[] audio, String filename) {
+
+        ByteArrayResource audioResource =
+                new ByteArrayResource(audio) {
+
+                    @Override
+                    public String getFilename() {
+                        return filename;
+                    }
+                };
+
+        LinkedMultiValueMap<String, Object> body =
+                new LinkedMultiValueMap<>();
+
+        body.add("file", audioResource);
+        body.add("model", "whisper-1");
+        body.add("language", "pt");
+
+        return webClient.post()
+                .uri("/audio/transcriptions")
+                .header(
+                        "Authorization",
+                        "Bearer " + getApiKey()
+                )
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(BodyInserters.fromMultipartData(body))
+                .retrieve()
+                .bodyToMono(TranscriptionResponse.class)
+                .block()
+                .text();
+    }
+
+    public byte[] generateSpeech(String text) {
+
+        SpeechRequest request = new SpeechRequest(
+                "tts-1",
+                "alloy",
+                text
+        );
+
+        return webClient.post()
+                .uri("/audio/speech")
+                .header(
+                        "Authorization",
+                        "Bearer " + getApiKey()
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_OCTET_STREAM)
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(byte[].class)
+                .block();
+    }
+
+    public record TranscriptionResponse(String text) {
+    }
+
+    public record SpeechRequest(
+            String model,
+            String voice,
+            String input
+    ) {
+    }
+}
+
+
+==================================================
+ARQUIVO: src/main/java/com/example/finance/controller/FinanceController.java
+==================================================
+
+package com.example.finance.controller;
+
+import com.example.finance.model.Transaction;
+import com.example.finance.service.AiService;
+import com.example.finance.service.AudioService;
+import com.example.finance.service.FinanceService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api")
+public class FinanceController {
+
+    private final FinanceService financeService;
+    private final AiService aiService;
+    private final AudioService audioService;
+
+    public FinanceController(
+            FinanceService financeService,
+            AiService aiService,
+            AudioService audioService
+    ) {
+        this.financeService = financeService;
+        this.aiService = aiService;
+        this.audioService = audioService;
+    }
+
+    // ============================
+    // TRANSAÇÕES
+    // ============================
+
+    @PostMapping("/transactions")
+    public ResponseEntity<Transaction> create(
+            @Valid @RequestBody Transaction transaction
+    ) {
+
+        return ResponseEntity.ok(
+                financeService.create(transaction)
+        );
+    }
+
+    @GetMapping("/transactions")
+    public List<Transaction> findAll() {
+        return financeService.findAll();
+    }
+
+    @GetMapping("/transactions/{id}")
+    public Transaction findById(
+            @PathVariable Long id
+    ) {
+        return financeService.findById(id);
+    }
+
+    @PutMapping("/transactions/{id}")
+    public Transaction update(
+            @PathVariable Long id,
+            @Valid @RequestBody Transaction transaction
+    ) {
+        return financeService.update(id, transaction);
+    }
+
+    @DeleteMapping("/transactions/{id}")
+    public ResponseEntity<Void> delete(
+            @PathVariable Long id
+    ) {
+
+        financeService.delete(id);
+
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/transactions/type/{type}")
+    public List<Transaction> findByType(
+            @PathVariable String type
+    ) {
+        return financeService.findByType(type);
+    }
+
+    @GetMapping("/transactions/category/{category}")
+    public List<Transaction> findByCategory(
+            @PathVariable String category
+    ) {
+        return financeService.findByCategory(category);
+    }
+
+    @GetMapping("/transactions/search")
+    public List<Transaction> search(
+            @RequestParam String description
+    ) {
+        return financeService.findByDescription(description);
+    }
+
+    // ============================
+    // FINANCEIRO
+    // ============================
+
+    @GetMapping("/finance/balance")
+    public Map<String, Object> balance() {
+
+        return Map.of(
+                "income", financeService.getTotalIncome(),
+                "expenses", financeService.getTotalExpenses(),
+                "balance", financeService.getBalance()
+        );
+    }
+
+    @GetMapping("/finance/summary")
+    public String summary() {
+        return financeService.getFinancialSummary();
+    }
+
+    // ============================
+    // INTELIGÊNCIA ARTIFICIAL
+    // ============================
+
+    @PostMapping("/assistant/chat")
+    public Map<String, String> chat(
+            @RequestBody ChatRequest request
+    ) {
+
+        String response = aiService.chat(request.message());
+
+        return Map.of(
+                "message", request.message(),
+                "response", response
+        );
+    }
+
+    // ============================
+    // ÁUDIO
+    // ============================
+
+    @PostMapping(
+            value = "/assistant/audio",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public Map<String, String> audio(
+            @RequestParam("file") MultipartFile file
+    ) throws Exception {
+
+        if (file.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "O arquivo de áudio está vazio."
+            );
+        }
+
+        String transcription = audioService.transcribe(
+                file.getBytes(),
+                file.getOriginalFilename() == null
+                        ? "audio.mp3"
+                        : file.getOriginalFilename()
+        );
+
+        String response = aiService.chat(transcription);
+
+        return Map.of(
+                "transcription", transcription,
+                "response", response
+        );
+    }
+
+    @PostMapping("/assistant/speech")
+    public ResponseEntity<byte[]> speech(
+            @RequestBody SpeechRequest request
+    ) {
+
+        byte[] audio = audioService.generateSpeech(
+                request.text()
+        );
+
+        return ResponseEntity.ok()
+                .header(
+                        HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"response.mp3\""
+                )
+                .contentType(MediaType.parseMediaType("audio/mpeg"))
+                .body(audio);
+    }
+
+    public record ChatRequest(String message) {
+    }
+
+    public record SpeechRequest(String text) {
+    }
+}
